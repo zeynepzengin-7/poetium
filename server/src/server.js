@@ -22,7 +22,7 @@ let geminiDayCount = 0;
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 const mailer = process.env.SMTP_HOST
   ? nodemailer.createTransport({
@@ -138,6 +138,10 @@ app.post('/ocr/gemini', authenticate, async (req, res, next) => {
     const { mimeType, imageBase64 } = req.body;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) || typeof imageBase64 !== 'string') {
       return res.status(400).json({ message: 'Geçerli bir görsel gerekli.' });
+    }
+    const approximateBytes = Buffer.byteLength(imageBase64, 'base64');
+    if (approximateBytes > 8 * 1024 * 1024) {
+      return res.status(413).json({ message: 'Seçilen görsel çok büyük. Daha küçük bir fotoğraf seç veya resmi küçültüp tekrar dene.' });
     }
     const quotaMessage = reserveGeminiRequest();
     if (quotaMessage) return res.status(429).json({ message: quotaMessage });

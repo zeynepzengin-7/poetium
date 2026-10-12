@@ -13,6 +13,10 @@ export function getGeminiUserMessage(response, payload = {}) {
     return 'Gemini OCR kotası doldu. Biraz sonra tekrar deneyin.';
   }
 
+  if (response?.status === 413 || /request entity too large|too large|çok büyük/i.test(message)) {
+    return 'Seçilen görsel çok büyük. Lütfen daha küçük bir fotoğraf seç veya resmi küçültüp tekrar dene.';
+  }
+
   if (response?.status === 503 || /high demand|temporarily unavailable|unavailable|currently experiencing high demand/i.test(message)) {
     return 'Gemini şu anda yoğunluk nedeniyle geçici olarak ulaşılamıyor. Birkaç dakika sonra tekrar deneyin.';
   }

@@ -31,6 +31,14 @@ test('returns transient overload message when Gemini is busy', () => {
   assert.match(info, /yoğunluk|daha sonra|geçici/i);
 });
 
+test('returns size guidance when the uploaded image is too large', () => {
+  const info = getGeminiUserMessage({ status: 413 }, {
+    error: { message: 'Request entity too large' },
+  });
+
+  assert.match(info, /çok büyük|daha küçük|küçült/i);
+});
+
 test('returns generic failure message otherwise', () => {
   const info = getGeminiUserMessage({ status: 502 }, {
     error: { message: 'Bad gateway' },
