@@ -9,6 +9,10 @@ export function getGeminiUserMessage(response, payload = {}) {
     return 'Gemini API anahtarı geçersiz. Google AI Studio üzerinden yeni bir API anahtarı oluşturup server/.env dosyasındaki GEMINI_API_KEY değerini güncelleyin.';
   }
 
+  if (response?.status === 400 && /base64|inline_data|TYPE_BYTES|invalid value at 'contents.*inline_data.data'/i.test(message)) {
+    return 'Seçilen görsel verisi bozuk veya çok büyük. Lütfen farklı bir fotoğraf seç veya resmi küçük JPEG olarak tekrar dene.';
+  }
+
   if (response?.status === 429 || /rate limit|quota|kota/i.test(message)) {
     return 'Gemini OCR kotası doldu. Biraz sonra tekrar deneyin.';
   }

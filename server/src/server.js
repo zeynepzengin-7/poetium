@@ -659,23 +659,27 @@ app.delete('/comments/:id', authenticate, async (req, res, next) => {
 // ARŞİV ENDPOINTS
 app.post('/poems/:id/archive', authenticate, async (req, res, next) => {
   try {
-    const { title, category = '', notes = '', tags = '', source = 'saved' } = req.body;
+    const { title, category = '', notes = '', tags = '', source = 'saved', editedBody } = req.body;
     if (!['saved', 'ocr'].includes(source)) return res.status(400).json({ message: 'Kaynak geçersiz.' });
+    if (editedBody !== undefined && (typeof editedBody !== 'string' || !editedBody.trim())) {
+      return res.status(400).json({ message: 'Şiir metni boş olamaz.' });
+    }
     const poem = await query('SELECT id FROM poems WHERE id = $1', [req.params.id]);
     if (!poem.rows[0]) return res.status(404).json({ message: 'Şiir bulunamadı.' });
     const result = await query(
-      `INSERT INTO archives(user_id, poem_id, title, category, notes, tags, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO archives(user_id, poem_id, title, category, notes, tags, source, edited_body)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (user_id, poem_id) DO UPDATE SET
          title = EXCLUDED.title, category = EXCLUDED.category,
          notes = EXCLUDED.notes, tags = EXCLUDED.tags,
-         source = EXCLUDED.source, updated_at = NOW()
+         source = EXCLUDED.source,
+         edited_body = COALESCE(EXCLUDED.edited_body, archives.edited_body), updated_at = NOW()
        RETURNING *`,
-      [req.userId, req.params.id, title || '', category.substring(0, 80), notes.substring(0, 5000), tags.substring(0, 200), source],
+      [req.userId, req.params.id, title || '', category.substring(0, 80), notes.substring(0, 5000), tags.substring(0, 200), source, editedBody?.trim() ?? null],
     );
     const archive = await query(
       `SELECT a.id, a.poem_id, a.title, a.category, a.notes, a.tags, a.source,
-        a.created_at, a.updated_at, p.title AS poem_title, p.body AS poem_body,
+        a.created_at, a.updated_at, p.title AS poem_title, COALESCE(a.edited_body, p.body) AS poem_body,
         u.name AS author_name, u.username AS author_username
        FROM archives a
        JOIN poems p ON p.id = a.poem_id
@@ -698,7 +702,7 @@ app.get('/me/archives', authenticate, async (req, res, next) => {
   try {
     const result = await query(
       `SELECT a.id, a.poem_id, a.title, a.category, a.notes, a.tags, a.source, a.created_at, a.updated_at,
-        p.title AS poem_title, p.body, u.name AS author_name, u.username AS author_username
+        p.title AS poem_title, COALESCE(a.edited_body, p.body) AS body, u.name AS author_name, u.username AS author_username
        FROM archives a
        JOIN poems p ON p.id = a.poem_id
        JOIN users u ON u.id = p.author_id
@@ -728,20 +732,24 @@ app.get('/me/archives', authenticate, async (req, res, next) => {
 
 app.put('/archives/:id', authenticate, async (req, res, next) => {
   try {
-    const { title, category = '', notes = '', tags = '' } = req.body;
+    const { title, category = '', notes = '', tags = '', editedBody } = req.body;
+    if (editedBody !== undefined && (typeof editedBody !== 'string' || !editedBody.trim())) {
+      return res.status(400).json({ message: 'Şiir metni boş olamaz.' });
+    }
     const archive = await query('SELECT user_id FROM archives WHERE id = $1', [req.params.id]);
     if (!archive.rows[0]) return res.status(404).json({ message: 'Arşiv bulunamadı.' });
     if (String(archive.rows[0].user_id) !== String(req.userId)) {
       return res.status(403).json({ message: 'Bu arşiv sizin değil.' });
     }
     const result = await query(
-      `UPDATE archives SET title = $2, category = $3, notes = $4, tags = $5, updated_at = NOW()
+      `UPDATE archives SET title = $2, category = $3, notes = $4, tags = $5,
+       edited_body = COALESCE($6, edited_body), updated_at = NOW()
        WHERE id = $1 RETURNING id`,
-      [req.params.id, title || '', category.substring(0, 80), notes.substring(0, 5000), tags.substring(0, 200)],
+      [req.params.id, title || '', category.substring(0, 80), notes.substring(0, 5000), tags.substring(0, 200), editedBody?.trim() ?? null],
     );
     const updated = await query(
       `SELECT a.id, a.poem_id, a.title, a.category, a.notes, a.tags, a.source, a.created_at, a.updated_at,
-        p.title AS poem_title, p.body AS poem_body, u.name AS author_name, u.username AS author_username
+        p.title AS poem_title, COALESCE(a.edited_body, p.body) AS poem_body, u.name AS author_name, u.username AS author_username
        FROM archives a JOIN poems p ON p.id = a.poem_id JOIN users u ON u.id = p.author_id
        WHERE a.id = $1`,
       [result.rows[0].id],

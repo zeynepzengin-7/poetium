@@ -39,6 +39,16 @@ test('returns size guidance when the uploaded image is too large', () => {
   assert.match(info, /çok büyük|daha küçük|küçült/i);
 });
 
+test('returns image-format guidance when base64 payload is invalid', () => {
+  const info = getGeminiUserMessage({ status: 400 }, {
+    error: {
+      message: "Invalid value at 'contents[0].parts[1].inline_data.data' (TYPE_BYTES), Base64 decoding failed",
+    },
+  });
+
+  assert.match(info, /görsel|fotoğraf|JPEG|bozuk|küçük/i);
+});
+
 test('returns generic failure message otherwise', () => {
   const info = getGeminiUserMessage({ status: 502 }, {
     error: { message: 'Bad gateway' },

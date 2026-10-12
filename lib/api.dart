@@ -278,6 +278,7 @@ abstract class PoetiumRepository {
     String notes = '',
     String tags = '',
     String source = 'saved',
+    String? editedBody,
   });
   Future<List<Archive>> fetchArchives(String token);
   Future<Archive> updateArchive(
@@ -287,6 +288,7 @@ abstract class PoetiumRepository {
     required String category,
     required String notes,
     required String tags,
+    required String editedBody,
   });
   Future<void> deleteArchive(String token, String archiveId);
   Future<String> recognizeGemini({
@@ -595,6 +597,7 @@ class HttpPoetiumRepository implements PoetiumRepository {
     String notes = '',
     String tags = '',
     String source = 'saved',
+    String? editedBody,
   }) async {
     final data = await request(
       'POST',
@@ -606,6 +609,7 @@ class HttpPoetiumRepository implements PoetiumRepository {
         'notes': notes,
         'tags': tags,
         'source': source,
+        'editedBody': ?editedBody,
       },
     );
     return Archive.fromJson(data['archive'] as Map<String, dynamic>);
@@ -627,6 +631,7 @@ class HttpPoetiumRepository implements PoetiumRepository {
     required String category,
     required String notes,
     required String tags,
+    required String editedBody,
   }) async {
     final data = await request(
       'PUT',
@@ -637,6 +642,7 @@ class HttpPoetiumRepository implements PoetiumRepository {
         'category': category,
         'notes': notes,
         'tags': tags,
+        'editedBody': editedBody,
       },
     );
     return Archive.fromJson(data['archive'] as Map<String, dynamic>);

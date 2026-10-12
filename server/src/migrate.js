@@ -125,6 +125,7 @@ const statements = [
     CONSTRAINT archives_source CHECK (source IN ('saved', 'ocr'))
   )`,
   'ALTER TABLE archives ADD COLUMN IF NOT EXISTS category VARCHAR(80)',
+  'ALTER TABLE archives ADD COLUMN IF NOT EXISTS edited_body TEXT',
   'CREATE UNIQUE INDEX IF NOT EXISTS archives_user_poem_unique_idx ON archives(user_id, poem_id)',
   'CREATE INDEX IF NOT EXISTS poems_created_at_idx ON poems(created_at DESC)',
   'CREATE INDEX IF NOT EXISTS poems_author_id_idx ON poems(author_id)',

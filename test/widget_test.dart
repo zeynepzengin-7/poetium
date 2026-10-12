@@ -207,6 +207,7 @@ class FakePoetiumRepository implements PoetiumRepository {
     String notes = '',
     String tags = '',
     String source = 'saved',
+    String? editedBody,
   }) async => Archive(
         id: '1',
         poemId: poemId,
@@ -234,6 +235,7 @@ class FakePoetiumRepository implements PoetiumRepository {
     required String category,
     required String notes,
     required String tags,
+    required String editedBody,
   }) async => Archive(
         id: archiveId,
         poemId: '1',
@@ -758,6 +760,7 @@ class _FailingRepository implements PoetiumRepository {
     String notes = '',
     String tags = '',
     String source = 'saved',
+    String? editedBody,
   }) async => Archive(
         id: '1',
         poemId: poemId,
@@ -785,6 +788,7 @@ class _FailingRepository implements PoetiumRepository {
     required String category,
     required String notes,
     required String tags,
+    required String editedBody,
   }) async => Archive(
         id: archiveId,
         poemId: '1',

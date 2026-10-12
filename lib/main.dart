@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -1842,6 +1843,9 @@ class _ArchiveEditorSheetState extends State<ArchiveEditorSheet> {
   late final category = TextEditingController(
     text: widget.archive?.category ?? '',
   );
+  late final body = TextEditingController(
+    text: widget.archive?.poemBody ?? widget.poem.body,
+  );
   late final notes = TextEditingController(text: widget.archive?.notes ?? '');
   late final tags = TextEditingController(text: widget.archive?.tags ?? '');
   bool saving = false;
@@ -1850,6 +1854,7 @@ class _ArchiveEditorSheetState extends State<ArchiveEditorSheet> {
   void dispose() {
     title.dispose();
     category.dispose();
+    body.dispose();
     notes.dispose();
     tags.dispose();
     super.dispose();
@@ -1867,6 +1872,7 @@ class _ArchiveEditorSheetState extends State<ArchiveEditorSheet> {
           category: category.text.trim(),
           notes: notes.text.trim(),
           tags: tags.text.trim(),
+          editedBody: body.text.trim(),
         );
       } else {
         await widget.repository.updateArchive(
@@ -1876,6 +1882,7 @@ class _ArchiveEditorSheetState extends State<ArchiveEditorSheet> {
           category: category.text.trim(),
           notes: notes.text.trim(),
           tags: tags.text.trim(),
+          editedBody: body.text.trim(),
         );
       }
       if (mounted) Navigator.of(context).pop();
@@ -1908,6 +1915,8 @@ class _ArchiveEditorSheetState extends State<ArchiveEditorSheet> {
           ),
           const SizedBox(height: 16),
           TextField(controller: title, decoration: const InputDecoration(labelText: 'Arşiv başlığı', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: body, minLines: 6, maxLines: 16, decoration: const InputDecoration(labelText: 'Şiir metni', border: OutlineInputBorder())),
           const SizedBox(height: 12),
           TextField(controller: category, decoration: const InputDecoration(labelText: 'Kategori', hintText: 'Örneğin: Aşk, Doğa, Günlük', border: OutlineInputBorder())),
           const SizedBox(height: 12),
@@ -2736,23 +2745,49 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     }
   }
 
+  Future<Uint8List> compressImageForGemini(List<int> bytes) async {
+    final decoded = img.decodeImage(Uint8List.fromList(bytes));
+    if (decoded == null) {
+      throw const FormatException('Seçilen dosya bir fotoğraf değil veya bozuk.');
+    }
+    if (decoded.width < 32 || decoded.height < 32) {
+      throw const FormatException('Seçilen görsel çok küçük. Daha büyük ve net bir fotoğraf seç.');
+    }
+
+    const maxSide = 1600;
+    final resized = img.copyResize(
+      decoded,
+      width: decoded.width > decoded.height
+          ? maxSide
+          : ((decoded.width / decoded.height) * maxSide).round(),
+      height: decoded.height > decoded.width
+          ? maxSide
+          : ((decoded.height / decoded.width) * maxSide).round(),
+    );
+
+    return Uint8List.fromList(img.encodeJpg(resized, quality: 85));
+  }
+
   Future<void> recognizeWithGemini() async {
     final selected = image;
     if (selected == null || recognizing) return;
     setState(() => recognizing = true);
     try {
-      final bytes = await selected.readAsBytes();
-      final mimeType = switch (selected.name.toLowerCase().split('.').last) {
-        'png' => 'image/png',
-        'webp' => 'image/webp',
-        _ => 'image/jpeg',
-      };
+      final originalBytes = await selected.readAsBytes();
+      final compressedBytes = await compressImageForGemini(originalBytes);
+
       final recognized = await widget.repository.recognizeGemini(
         token: widget.token,
-        mimeType: mimeType,
-        imageBase64: base64Encode(bytes),
+        mimeType: 'image/jpeg',
+        imageBase64: base64Encode(compressedBytes),
       );
       if (mounted) text.text = recognized;
+    } on FormatException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
     } on ApiException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
     } finally {
