@@ -6,12 +6,14 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import { pool, query } from './db.js';
+import { getGeminiUserMessage } from './gemini.js';
 import { migrate } from './migrate.js';
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required.');
 
 const emailVerificationRequired = process.env.EMAIL_VERIFICATION_REQUIRED === 'true';
 const geminiApiKey = process.env.GEMINI_API_KEY;
+const geminiModel = process.env.GEMINI_MODEL ?? 'gemini-3.8-flash';
 const geminiRpmLimit = Number(process.env.GEMINI_RPM_LIMIT ?? 5);
 const geminiRpdLimit = Number(process.env.GEMINI_RPD_LIMIT ?? 20);
 const geminiRequests = [];
@@ -130,8 +132,8 @@ app.get('/health', async (_req, res, next) => {
 
 app.post('/ocr/gemini', authenticate, async (req, res, next) => {
   try {
-    if (!geminiApiKey) {
-      return res.status(503).json({ message: 'Gemini OCR yapılandırılmamış.' });
+    if (!geminiApiKey || geminiApiKey.includes('your_')) {
+      return res.status(503).json({ message: 'Gemini API anahtarı tanımlı değil. server/.env içindeki GEMINI_API_KEY alanını doldurun.' });
     }
     const { mimeType, imageBase64 } = req.body;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) || typeof imageBase64 !== 'string') {
@@ -141,7 +143,7 @@ app.post('/ocr/gemini', authenticate, async (req, res, next) => {
     if (quotaMessage) return res.status(429).json({ message: quotaMessage });
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -158,10 +160,9 @@ app.post('/ocr/gemini', authenticate, async (req, res, next) => {
     );
     const data = await response.json();
     if (!response.ok) {
-      if (response.status === 429) {
-        return res.status(429).json({ message: 'Gemini OCR kotası doldu. Daha sonra tekrar deneyin.' });
-      }
-      return res.status(502).json({ message: 'Gemini OCR isteği başarısız oldu.' });
+      const userMessage = getGeminiUserMessage(response, data);
+      const statusCode = response.status === 429 || response.status === 503 ? response.status : 502;
+      return res.status(statusCode).json({ message: userMessage });
     }
     const text = data.candidates?.[0]?.content?.parts
       ?.map((part) => part.text ?? '')
