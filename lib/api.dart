@@ -1,6 +1,9 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+const _configuredApiUrl = String.fromEnvironment('API_URL');
 
 class ApiException implements Exception {
   const ApiException(this.message);
@@ -297,10 +300,11 @@ class HttpPoetiumRepository implements PoetiumRepository {
   HttpPoetiumRepository({String? baseUrl, http.Client? client})
     : baseUrl =
           baseUrl ??
-          const String.fromEnvironment(
-            'API_URL',
-            defaultValue: 'http://10.0.2.2:3000',
-          ),
+          (_configuredApiUrl.isNotEmpty
+              ? _configuredApiUrl
+              : kIsWeb
+              ? 'http://localhost:3000'
+              : 'http://10.0.2.2:3000'),
       client = client ?? http.Client();
 
   final String baseUrl;

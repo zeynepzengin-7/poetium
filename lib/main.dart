@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
@@ -704,33 +704,89 @@ class _HomeScreenState extends State<HomeScreen> {
         onLogout: widget.onLogout,
       ),
     ];
-    return Scaffold(
-      body: SafeArea(
-        child: IndexedStack(index: tab, children: pages),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFE8D3B7),
-        onDestinationSelected: (value) => setState(() => tab = value),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.auto_stories_outlined),
-            selectedIcon: Icon(Icons.auto_stories),
-            label: 'Keşfet',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 900;
+        final content = Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isWide ? 1120 : double.infinity),
+            child: IndexedStack(index: tab, children: pages),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.edit_outlined),
-            selectedIcon: Icon(Icons.edit),
-            label: 'Yaz',
+        );
+        return Scaffold(
+          body: SafeArea(
+            child: isWide
+                ? Row(
+                    children: [
+                      NavigationRail(
+                        selectedIndex: tab,
+                        backgroundColor: Colors.white,
+                        indicatorColor: const Color(0xFFE8D3B7),
+                        labelType: NavigationRailLabelType.all,
+                        onDestinationSelected: (value) => setState(() => tab = value),
+                        leading: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(9),
+                            child: Image.asset(
+                              'assets/branding/poetium_icon.png',
+                              width: 42,
+                              height: 42,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        destinations: const [
+                          NavigationRailDestination(
+                            icon: Icon(Icons.auto_stories_outlined),
+                            selectedIcon: Icon(Icons.auto_stories),
+                            label: Text('Keşfet'),
+                          ),
+                          NavigationRailDestination(
+                            icon: Icon(Icons.edit_outlined),
+                            selectedIcon: Icon(Icons.edit),
+                            label: Text('Yaz'),
+                          ),
+                          NavigationRailDestination(
+                            icon: Icon(Icons.person_outline),
+                            selectedIcon: Icon(Icons.person),
+                            label: Text('Ben'),
+                          ),
+                        ],
+                      ),
+                      const VerticalDivider(width: 1, thickness: 1),
+                      Expanded(child: content),
+                    ],
+                  )
+                : content,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Ben',
-          ),
-        ],
-      ),
+          bottomNavigationBar: isWide
+              ? null
+              : NavigationBar(
+                  selectedIndex: tab,
+                  backgroundColor: Colors.white,
+                  indicatorColor: const Color(0xFFE8D3B7),
+                  onDestinationSelected: (value) => setState(() => tab = value),
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.auto_stories_outlined),
+                      selectedIcon: Icon(Icons.auto_stories),
+                      label: 'Keşfet',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.edit_outlined),
+                      selectedIcon: Icon(Icons.edit),
+                      label: 'Yaz',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.person_outline),
+                      selectedIcon: Icon(Icons.person),
+                      label: 'Ben',
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }
@@ -2626,8 +2682,9 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
   final picker = ImagePicker();
   final title = TextEditingController(text: 'Fotoğraftan şiir');
   final text = TextEditingController();
-  final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+  TextRecognizer? recognizer;
   XFile? image;
+  Uint8List? imageBytes;
   bool recognizing = false;
   bool saving = false;
 
@@ -2635,7 +2692,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
   void dispose() {
     title.dispose();
     text.dispose();
-    recognizer.close();
+    recognizer?.close();
     super.dispose();
   }
 
@@ -2647,11 +2704,15 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
         maxWidth: 2400,
       );
       if (selected == null) return;
+      final bytes = await selected.readAsBytes();
       setState(() {
         image = selected;
-        recognizing = true;
+        imageBytes = bytes;
+        recognizing = !kIsWeb;
       });
-      final result = await recognizer.processImage(
+      if (kIsWeb) return;
+      recognizer ??= TextRecognizer(script: TextRecognitionScript.latin);
+      final result = await recognizer!.processImage(
         InputImage.fromFilePath(selected.path),
       );
       if (mounted) {
@@ -2681,7 +2742,7 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
     setState(() => recognizing = true);
     try {
       final bytes = await selected.readAsBytes();
-      final mimeType = switch (selected.path.toLowerCase().split('.').last) {
+      final mimeType = switch (selected.name.toLowerCase().split('.').last) {
         'png' => 'image/png',
         'webp' => 'image/webp',
         _ => 'image/jpeg',
@@ -2784,8 +2845,8 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
               child: InteractiveViewer(
                 minScale: 1,
                 maxScale: 4,
-                child: Image.file(
-                  File(image!.path),
+                child: Image.memory(
+                  imageBytes!,
                   width: double.infinity,
                   fit: BoxFit.contain,
                 ),
@@ -2793,6 +2854,12 @@ class _OcrCaptureScreenState extends State<OcrCaptureScreen> {
             ),
           if (image != null) ...[
             const SizedBox(height: 10),
+            if (kIsWeb)
+              const Text(
+                'Webde metni Gemini ile okutabilir veya kendin düzenleyebilirsin.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black54),
+              ),
             OutlinedButton.icon(
               onPressed: recognizing ? null : recognizeWithGemini,
               icon: const Icon(Icons.auto_awesome_outlined),

@@ -1,6 +1,6 @@
 # Poetium
 
-Flutter mobile application backed by an Express API and PostgreSQL.
+Flutter application for Android, iOS, and web, backed by an Express API and PostgreSQL.
 
 ## API
 
@@ -19,17 +19,30 @@ selected recipients, and criterion ratings. JWT access tokens are stateless.
 
 ## Flutter
 
-The Android emulator reaches the host API through `10.0.2.2` by default.
+The Android emulator reaches the host API through `10.0.2.2` by default. Web runs
+use `http://localhost:3000` by default.
 
 ```powershell
 flutter pub get
 flutter run -d emulator-5554
 ```
 
+Run the web app in Chrome:
+
+```powershell
+flutter run -d chrome
+```
+
 Override the API URL for another device or environment:
 
 ```powershell
 flutter run --dart-define=API_URL=http://192.168.1.10:3000
+```
+
+Build the web app for deployment with the production API URL:
+
+```powershell
+flutter build web --dart-define=API_URL=https://api.example.com
 ```
 
 Development builds allow cleartext HTTP for the local API. Production builds

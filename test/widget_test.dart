@@ -48,6 +48,13 @@ class FakePoetiumRepository implements PoetiumRepository {
   }
 
   @override
+  Future<String> recognizeGemini({
+    required String token,
+    required String mimeType,
+    required String imageBase64,
+  }) async => '';
+
+  @override
   Future<List<Poem>> fetchPoems(String token) async => List.of(poems);
 
   @override
@@ -269,6 +276,24 @@ void main() {
     expect(poem.author, '@leyladizeleri');
     expect(poem.totalScore, 4.65);
     expect(poem.average, 4.65);
+  });
+
+  testWidgets('uses desktop navigation on wide screens', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(PoetiumApp(repository: FakePoetiumRepository()));
+
+    await tester.enterText(find.byKey(const Key('auth-email')), 'ada@poetium.com');
+    await tester.enterText(find.byKey(const Key('auth-password')), 'siir123');
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
   });
 
   testWidgets('shows Google configuration requirement from registration', (
@@ -637,6 +662,13 @@ class _FailingRepository implements PoetiumRepository {
 
   @override
   Future<void> forgotPassword(String email) async {}
+
+  @override
+  Future<String> recognizeGemini({
+    required String token,
+    required String mimeType,
+    required String imageBase64,
+  }) async => throw UnimplementedError();
 
   @override
   Future<List<Poem>> fetchPoems(String token) async => const [];
