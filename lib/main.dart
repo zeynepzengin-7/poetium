@@ -568,6 +568,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int tab = 0;
+  int followRevision = 0;
   List<Poem> poems = [];
   List<Poem> followedPoems = [];
   List<UserProfile> users = [];
@@ -664,12 +665,14 @@ class _HomeScreenState extends State<HomeScreen> {
               poems: poems,
               followedPoems: followedPoems,
               users: users,
+              followRevision: followRevision,
               currentUserId: widget.account.id,
               token: widget.token,
               repository: widget.repository,
               onRate: rate,
               onShowRatingDetails: showRatingDetails,
               onRefresh: loadPoems,
+              onFollowChanged: () => setState(() => followRevision++),
             ),
       Compose(
         users: users,
@@ -707,6 +710,8 @@ class _HomeScreenState extends State<HomeScreen> {
         token: widget.token,
         repository: widget.repository,
         onLogout: widget.onLogout,
+        followRevision: followRevision,
+        onFollowChanged: () => setState(() => followRevision++),
       ),
     ];
     return LayoutBuilder(
@@ -802,22 +807,26 @@ class Discover extends StatefulWidget {
     required this.poems,
     required this.followedPoems,
     required this.users,
+    required this.followRevision,
     required this.currentUserId,
     required this.token,
     required this.repository,
     required this.onRate,
     required this.onShowRatingDetails,
     required this.onRefresh,
+    required this.onFollowChanged,
   });
   final List<Poem> poems;
   final List<Poem> followedPoems;
   final List<UserProfile> users;
+  final int followRevision;
   final String currentUserId;
   final String token;
   final PoetiumRepository repository;
   final ValueChanged<Poem> onRate;
   final ValueChanged<Poem> onShowRatingDetails;
   final Future<void> Function() onRefresh;
+  final VoidCallback onFollowChanged;
 
   @override
   State<Discover> createState() => _DiscoverState();
@@ -825,12 +834,110 @@ class Discover extends StatefulWidget {
 
 class _DiscoverState extends State<Discover> {
   final search = TextEditingController();
+  final followedUserIds = <String>{};
+  final followRequestsInFlight = <String>{};
+  bool followStateLoaded = false;
   String selectedFeed = 'Senin için';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFollowState();
+  }
+  
+  @override
+  void didUpdateWidget(covariant Discover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.followRevision != widget.followRevision) {
+      _loadFollowState();
+    }
+  }
 
   @override
   void dispose() {
     search.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadFollowState() async {
+    try {
+      final following = await widget.repository.fetchFollowing(
+        widget.token,
+        widget.currentUserId,
+      );
+      if (!mounted) return;
+      setState(() {
+        followedUserIds
+          ..clear()
+          ..addAll(following.map((user) => user.id));
+        followStateLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => followStateLoaded = true);
+    }
+  }
+
+  
+  void _notifyFollowChanged() {
+    _loadFollowState();
+    widget.onFollowChanged();
+  }
+  Future<void> _toggleUserFollow(String userId) async {
+    if (userId == widget.currentUserId ||
+        followRequestsInFlight.contains(userId)) {
+      return;
+    }
+    final isFollowing = followedUserIds.contains(userId);
+    setState(() => followRequestsInFlight.add(userId));
+    try {
+      if (isFollowing) {
+        await widget.repository.unfollowUser(widget.token, userId);
+      } else {
+        await widget.repository.followUser(widget.token, userId);
+      }
+      if (!mounted) return;
+      setState(() {
+        if (isFollowing) {
+          followedUserIds.remove(userId);
+        } else {
+          followedUserIds.add(userId);
+        }
+      });
+      widget.onFollowChanged();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Takip işlemi başarısız oldu.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => followRequestsInFlight.remove(userId));
+    }
+  }
+
+  void _openUserProfile(String userId) {
+    for (final user in widget.users) {
+      if (user.id == userId) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => UserProfileDetailScreen(
+              user: user,
+              token: widget.token,
+              repository: widget.repository,
+              currentUserId: widget.currentUserId,
+              onFollowChanged: _notifyFollowChanged,
+            ),
+          ),
+        );
+        return;
+      }
+    }
   }
 
   @override
@@ -914,30 +1021,50 @@ class _DiscoverState extends State<Discover> {
           ),
           const SizedBox(height: 4),
           SizedBox(
-            height: 54,
+            height: filteredUsers.length > 3
+                ? 192
+                : filteredUsers.length * 64.0,
             child: ListView.separated(
-              scrollDirection: Axis.horizontal,
               itemCount: filteredUsers.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (_, index) {
                 final user = filteredUsers[index];
-                return ActionChip(
-                  avatar: PoetiumAvatar(
+                final isSelf = user.id == widget.currentUserId;
+                final isFollowing = followedUserIds.contains(user.id);
+                final isPending = followRequestsInFlight.contains(user.id);
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: PoetiumAvatar(
                     username: user.username,
                     avatarUrl: user.avatarUrl,
-                    radius: 15,
                   ),
-                  label: Text('@${user.username}'),
-                  onPressed: () => Navigator.of(context).push(
+                  title: Text('@${user.username}'),
+                  subtitle: Text(user.name),
+                  onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => UserProfileDetailScreen(
                         user: user,
                         token: widget.token,
                         repository: widget.repository,
                         currentUserId: widget.currentUserId,
+                        onFollowChanged: _notifyFollowChanged,
                       ),
                     ),
                   ),
+                  trailing: isSelf
+                      ? const Text('Sen')
+                      : TextButton(
+                          onPressed: !followStateLoaded || isPending
+                              ? null
+                              : () => _toggleUserFollow(user.id),
+                          child: Text(
+                            isPending
+                                ? '...'
+                                : isFollowing
+                                ? 'Takipten çık'
+                                : 'Takip et',
+                          ),
+                        ),
                 );
               },
             ),
@@ -999,6 +1126,15 @@ class _DiscoverState extends State<Discover> {
                       poem: filteredPoems[index],
                       token: widget.token,
                       repository: widget.repository,
+                      currentUserId: widget.currentUserId,
+                      onAuthorTap: () =>
+                          _openUserProfile(filteredPoems[index].authorId),
+                      isFollowingAuthor: followedUserIds.contains(
+                        filteredPoems[index].authorId,
+                      ),
+                      onToggleAuthorFollow: () => _toggleUserFollow(
+                        filteredPoems[index].authorId,
+                      ),
                       onRate: () => widget.onRate(filteredPoems[index]),
                       onShowRatingDetails: () =>
                           widget.onShowRatingDetails(filteredPoems[index]),
@@ -1020,12 +1156,20 @@ class PoemCard extends StatefulWidget {
     required this.repository,
     required this.onRate,
     required this.onShowRatingDetails,
+    this.currentUserId,
+    this.onAuthorTap,
+    this.isFollowingAuthor = false,
+    this.onToggleAuthorFollow,
   });
   final Poem poem;
   final String token;
   final PoetiumRepository repository;
   final VoidCallback onRate;
   final VoidCallback onShowRatingDetails;
+  final String? currentUserId;
+  final VoidCallback? onAuthorTap;
+  final bool isFollowingAuthor;
+  final VoidCallback? onToggleAuthorFollow;
 
   @override
   State<PoemCard> createState() => _PoemCardState();
@@ -1120,31 +1264,38 @@ class _PoemCardState extends State<PoemCard> {
             children: [
               Row(
                 children: [
-                  const CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Color(0xFFE8D3B7),
-                    child: Icon(Icons.person, color: ink, size: 20),
+                  InkWell(
+                    onTap: widget.onAuthorTap,
+                    customBorder: const CircleBorder(),
+                    child: const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Color(0xFFE8D3B7),
+                      child: Icon(Icons.person, color: ink, size: 20),
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.poem.author,
-                          style: const TextStyle(
-                            color: ink,
-                            fontWeight: FontWeight.bold,
+                    child: InkWell(
+                      onTap: widget.onAuthorTap,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.poem.author,
+                            style: const TextStyle(
+                              color: ink,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        Text(
-                          widget.poem.visibility,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.black54,
+                          Text(
+                            widget.poem.visibility,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Colors.black54,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   Text(
@@ -1159,6 +1310,23 @@ class _PoemCardState extends State<PoemCard> {
                   ),
                 ],
               ),
+              if (widget.currentUserId != null &&
+                  widget.poem.authorId != widget.currentUserId &&
+                  widget.onToggleAuthorFollow != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: widget.onToggleAuthorFollow,
+                    icon: Icon(
+                      widget.isFollowingAuthor
+                          ? Icons.person_remove_outlined
+                          : Icons.person_add_alt_1_outlined,
+                    ),
+                    label: Text(
+                      widget.isFollowingAuthor ? 'Takipten çık' : 'Takip et',
+                    ),
+                  ),
+                ),
               const SizedBox(height: 20),
               Text(
                 widget.poem.title,
@@ -1456,6 +1624,8 @@ class ProfileScreen extends StatefulWidget {
     required this.token,
     required this.repository,
     required this.onLogout,
+    required this.followRevision,
+    required this.onFollowChanged,
   });
 
   final UserAccount account;
@@ -1463,6 +1633,8 @@ class ProfileScreen extends StatefulWidget {
   final String token;
   final PoetiumRepository repository;
   final VoidCallback onLogout;
+  final int followRevision;
+  final VoidCallback onFollowChanged;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -1479,6 +1651,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     avatarUrl = widget.account.avatarUrl;
     _loadFollowStats();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.followRevision != widget.followRevision) {
+      _loadFollowStats();
+    }
   }
 
   Future<void> _changeAvatar() async {
@@ -1570,142 +1750,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _toggleProfileFollow(String userId) async {
-    final isFollowing = following.any((user) => user.id == userId);
-    try {
-      if (isFollowing) {
-        await widget.repository.unfollowUser(widget.token, userId);
-      } else {
-        await widget.repository.followUser(widget.token, userId);
-      }
-      await _loadFollowStats();
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Takip işlemi başarısız oldu.')),
-      );
-    }
-  }
-
-  void _showFollowList(BuildContext context, List<UserProfile> users, String title) {
-    final query = TextEditingController();
-    var expanded = false;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (bottomContext) {
-        return StatefulBuilder(
-          builder: (modalContext, setModalState) {
-            final text = query.text.trim().toLowerCase();
-            final filteredUsers = users.where((user) {
-              if (text.isEmpty) return true;
-              return user.name.toLowerCase().contains(text) ||
-                  user.username.toLowerCase().contains(text);
-            }).toList();
-            final visibleUsers = expanded
-                ? filteredUsers
-                : filteredUsers.take(5).toList();
-            return SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: ink,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: query,
-                    onChanged: (_) => setModalState(() {}),
-                    decoration: const InputDecoration(
-                      hintText: 'Takip edilenlerde ara...',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (filteredUsers.isEmpty)
-                    const Text(
-                      'Hiçbir sonuç bulunamadı.',
-                      style: TextStyle(color: Colors.black54),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: visibleUsers.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (_, index) {
-                          final user = visibleUsers[index];
-                          final isFollowing = following.any((item) => item.id == user.id);
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: PoetiumAvatar(
-                              username: user.username,
-                              avatarUrl: user.avatarUrl,
-                            ),
-                            title: Text('@${user.username}'),
-                            subtitle: Text(user.name),
-                            onTap: () {
-                              Navigator.of(modalContext).pop();
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => UserProfileDetailScreen(
-                                    user: user,
-                                    token: widget.token,
-                                    repository: widget.repository,
-                                    currentUserId: widget.account.id,
-                                  ),
-                                ),
-                              );
-                            },
-                            trailing: user.id == widget.account.id
-                                ? null
-                                : TextButton(
-                                    onPressed: () => _toggleProfileFollow(user.id),
-                                    child: Text(
-                                      isFollowing ? 'Takipten çık' : 'Takip et',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                          );
-                        },
-                      ),
-                    ),
-                  if (filteredUsers.length > 5)
-                    Align(
-                      alignment: Alignment.center,
-                      child: TextButton.icon(
-                        onPressed: () => setModalState(() => expanded = !expanded),
-                        icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
-                        label: Text(expanded ? 'Daha az göster' : 'Tümünü göster (${filteredUsers.length})'),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          );
-          },
-        );
-      },
+  void _showFollowList(List<UserProfile> users, String title, {bool removeOnUnfollow = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => FollowListScreen(
+          title: title,
+          users: users,
+          token: widget.token,
+          repository: widget.repository,
+          currentUserId: widget.account.id,
+          removeOnUnfollow: removeOnUnfollow,
+          onFollowChanged: widget.onFollowChanged,
+        ),
+      ),
     );
   }
 
@@ -1806,12 +1864,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _ProfileStat(
                     value: '${followers.length}',
                     label: 'Takipçi',
-                    onTap: () => _showFollowList(context, followers, 'Takipçiler'),
+                      onTap: () => _showFollowList(followers, 'Takipçiler'),
                   ),
                   _ProfileStat(
                     value: '${following.length}',
                     label: 'Takip',
-                    onTap: () => _showFollowList(context, following, 'Takip edilenler'),
+                      onTap: () => _showFollowList(
+                        following,
+                        'Takip edilenler',
+                        removeOnUnfollow: true,
+                      ),
                   ),
                 ],
               ),
@@ -2527,6 +2589,208 @@ class RatingDetailsSheet extends StatelessWidget {
   );
 }
 
+class FollowListScreen extends StatefulWidget {
+  const FollowListScreen({
+    super.key,
+    required this.title,
+    required this.users,
+    required this.token,
+    required this.repository,
+    required this.currentUserId,
+    required this.removeOnUnfollow,
+    required this.onFollowChanged,
+  });
+
+  final String title;
+  final List<UserProfile> users;
+  final String token;
+  final PoetiumRepository repository;
+  final String currentUserId;
+  final bool removeOnUnfollow;
+  final VoidCallback onFollowChanged;
+
+  @override
+  State<FollowListScreen> createState() => _FollowListScreenState();
+}
+
+class _FollowListScreenState extends State<FollowListScreen> {
+  final search = TextEditingController();
+  final followingIds = <String>{};
+  final pendingIds = <String>{};
+  late final List<UserProfile> users = List.of(widget.users);
+  bool followStateLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFollowState();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFollowState() async {
+    try {
+      final result = await widget.repository.fetchFollowing(
+        widget.token,
+        widget.currentUserId,
+      );
+      if (!mounted) return;
+      setState(() {
+        followingIds
+          ..clear()
+          ..addAll(result.map((user) => user.id));
+        followStateLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => followStateLoaded = true);
+    }
+  }
+
+  void _handleFollowChanged() {
+    _loadFollowState();
+    widget.onFollowChanged();
+  }
+
+  Future<void> _toggleFollow(UserProfile user) async {
+    if (user.id == widget.currentUserId || pendingIds.contains(user.id)) return;
+    final wasFollowing = followingIds.contains(user.id);
+    setState(() => pendingIds.add(user.id));
+    try {
+      if (wasFollowing) {
+        await widget.repository.unfollowUser(widget.token, user.id);
+      } else {
+        await widget.repository.followUser(widget.token, user.id);
+      }
+      if (!mounted) return;
+      setState(() {
+        if (wasFollowing) {
+          followingIds.remove(user.id);
+          if (widget.removeOnUnfollow) {
+            users.removeWhere((item) => item.id == user.id);
+          }
+        } else {
+          followingIds.add(user.id);
+        }
+      });
+      widget.onFollowChanged();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Takip işlemi başarısız oldu.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => pendingIds.remove(user.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = search.text.trim().toLowerCase();
+    final filteredUsers = users.where((user) {
+      return user.name.toLowerCase().contains(query) ||
+          user.username.toLowerCase().contains(query);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: paper,
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Kapat',
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close),
+        ),
+        title: Text(widget.title),
+        backgroundColor: paper,
+        foregroundColor: ink,
+        elevation: 0,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 20),
+        child: Column(
+          children: [
+            TextField(
+              controller: search,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                hintText: 'Kullanıcı ara...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: filteredUsers.isEmpty
+                  ? Center(
+                      child: Text(
+                        users.isEmpty
+                            ? 'Henüz kimse yok.'
+                            : 'Aramayla eşleşen kullanıcı yok.',
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: filteredUsers.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (_, index) {
+                        final user = filteredUsers[index];
+                        final isSelf = user.id == widget.currentUserId;
+                        final isFollowing = followingIds.contains(user.id);
+                        final isPending = pendingIds.contains(user.id);
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: PoetiumAvatar(
+                            username: user.username,
+                            avatarUrl: user.avatarUrl,
+                          ),
+                          title: Text('@${user.username}'),
+                          subtitle: Text(user.name),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => UserProfileDetailScreen(
+                                user: user,
+                                token: widget.token,
+                                repository: widget.repository,
+                                currentUserId: widget.currentUserId,
+                                onFollowChanged: _handleFollowChanged,
+                              ),
+                            ),
+                          ),
+                          trailing: isSelf
+                              ? const Text('Sen')
+                              : TextButton(
+                                  onPressed: !followStateLoaded || isPending
+                                      ? null
+                                      : () => _toggleFollow(user),
+                                  child: Text(
+                                    isPending
+                                        ? '...'
+                                        : isFollowing
+                                        ? 'Takipten çık'
+                                        : 'Takip et',
+                                  ),
+                                ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class UserProfileDetailScreen extends StatefulWidget {
   const UserProfileDetailScreen({
     super.key,
@@ -2534,7 +2798,9 @@ class UserProfileDetailScreen extends StatefulWidget {
     required this.token,
     required this.repository,
     required this.currentUserId,
+    this.onFollowChanged,
   });
+  final VoidCallback? onFollowChanged;
 
   final UserProfile user;
   final String token;
@@ -2592,59 +2858,20 @@ class _UserProfileDetailScreenState extends State<UserProfileDetailScreen> {
   }
 
   void _showFollowList(List<UserProfile> users, String title) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.6,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: ink,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: users.isEmpty
-                    ? const Center(child: Text('Henüz kimse yok.'))
-                    : ListView.builder(
-                        itemCount: users.length,
-                        itemBuilder: (_, index) {
-                          final user = users[index];
-                          return ListTile(
-                            leading: PoetiumAvatar(
-                              username: user.username,
-                              avatarUrl: user.avatarUrl,
-                            ),
-                            title: Text('@${user.username}'),
-                            subtitle: Text(user.name),
-                            onTap: () {
-                              Navigator.of(sheetContext).pop();
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => UserProfileDetailScreen(
-                                    user: user,
-                                    token: widget.token,
-                                    repository: widget.repository,
-                                    currentUserId: widget.currentUserId,
-                                  ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => FollowListScreen(
+          title: title,
+          users: users,
+          token: widget.token,
+          repository: widget.repository,
+          currentUserId: widget.currentUserId,
+          removeOnUnfollow: false,
+          onFollowChanged: () {
+            _loadProfile();
+            widget.onFollowChanged?.call();
+          },
         ),
       ),
     );
@@ -2659,6 +2886,7 @@ class _UserProfileDetailScreenState extends State<UserProfileDetailScreen> {
         await widget.repository.followUser(widget.token, widget.user.id);
       }
       await _loadProfile();
+      widget.onFollowChanged?.call();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
