@@ -1929,6 +1929,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             MaterialPageRoute<void>(
                               builder: (_) => PoemPdfExportScreen(
                                 poems: widget.poems,
+                                account: widget.account,
                                 token: widget.token,
                                 repository: widget.repository,
                               ),
@@ -1999,11 +2000,13 @@ class PoemPdfExportScreen extends StatefulWidget {
   const PoemPdfExportScreen({
     super.key,
     required this.poems,
+    required this.account,
     required this.token,
     required this.repository,
   });
 
   final List<Poem> poems;
+  final UserAccount account;
   final String token;
   final PoetiumRepository repository;
 
@@ -2058,23 +2061,22 @@ class _PoemPdfExportScreenState extends State<PoemPdfExportScreen> {
     ),
   );
 
-  pw.Widget _leafCluster(PdfColor leafColor, PdfColor stemColor) =>
-      pw.Container(
-        width: 90,
-        height: 48,
-        child: pw.Stack(
-          children: [
-            pw.Positioned(
-              left: 5,
-              top: 22,
-              child: pw.Container(width: 72, height: 2, color: stemColor),
-            ),
-            pw.Positioned(left: 10, top: 6, child: _leaf(30, 13, leafColor)),
-            pw.Positioned(left: 39, top: 14, child: _leaf(26, 11, leafColor)),
-            pw.Positioned(left: 18, top: 27, child: _leaf(28, 12, leafColor)),
-          ],
+  pw.Widget _leafCluster(PdfColor leafColor, PdfColor stemColor) => pw.Container(
+    width: 90,
+    height: 48,
+    child: pw.Stack(
+      children: [
+        pw.Positioned(
+          left: 5,
+          top: 22,
+          child: pw.Container(width: 72, height: 2, color: stemColor),
         ),
-      );
+        pw.Positioned(left: 10, top: 6, child: _leaf(30, 13, leafColor)),
+        pw.Positioned(left: 39, top: 14, child: _leaf(26, 11, leafColor)),
+        pw.Positioned(left: 18, top: 27, child: _leaf(28, 12, leafColor)),
+      ],
+    ),
+  );
 
   pw.Widget _leafyPageBackground(int backgroundIndex) {
     const backgroundColors = [
@@ -2179,54 +2181,125 @@ class _PoemPdfExportScreenState extends State<PoemPdfExportScreen> {
         for (final archive in archives) archive.poemId: archive,
       };
       final document = pw.Document();
+
+      final pageTheme = pw.PageTheme(
+        pageFormat: PdfPageFormat.a4,
+        margin: pw.EdgeInsets.zero,
+        theme: pw.ThemeData.withFont(
+          base: regularFont,
+          bold: boldFont,
+          italic: regularFont,
+          boldItalic: boldFont,
+        ),
+        buildBackground: (_) => _leafyPageBackground(selectedBackgroundIndex),
+      );
+
+      document.addPage(
+        pw.Page(
+          pageTheme: pageTheme,
+          build: (_) => pw.Center(
+            child: pw.Column(
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                pw.Text(
+                  'ŞİİRLERİM',
+                  style: pw.TextStyle(
+                    fontSize: 28,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 30),
+                pw.Text(
+                  widget.account.name,
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  '@${widget.account.username}',
+                  style: const pw.TextStyle(fontSize: 15),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
       for (final poem in selectedPoems) {
         final archive = archiveByPoemId[poem.id];
-        final details = <pw.Widget>[];
-        if (selectedFields.contains('date') && poem.createdAt != null) {
-          details.add(pw.Text('Yayınlanma tarihi ve saati: ${_formatDate(poem.createdAt!)}'));
-        }
-        if (selectedFields.contains('title')) {
-          details.add(pw.Text('Başlık: ${poem.title}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)));
-        }
+        final footerDetails = <pw.Widget>[];
         if (selectedFields.contains('category') && archive?.category.isNotEmpty == true) {
-          details.add(pw.Text('Kategori: ${archive!.category}'));
+          footerDetails.add(pw.Text('Kategori  ${archive!.category}'));
         }
         if (selectedFields.contains('notes') && archive?.notes.isNotEmpty == true) {
-          details.add(pw.Text('Notlar: ${archive!.notes}'));
+          footerDetails.add(pw.Text('Notlar  ${archive!.notes}'));
         }
         if (selectedFields.contains('tags') && archive?.tags.isNotEmpty == true) {
-          details.add(pw.Text('Etiketler: ${archive!.tags}'));
+          footerDetails.add(pw.Text('Etiketler  ${archive!.tags}'));
         }
-        if (selectedFields.contains('content')) {
-          details.add(pw.SizedBox(height: 8));
-          details.add(pw.Text(poem.body));
-        }
-        details.add(pw.Divider());
+
         document.addPage(
           pw.MultiPage(
             maxPages: 500,
-            pageTheme: pw.PageTheme(
-              pageFormat: PdfPageFormat.a4,
-              margin: pw.EdgeInsets.zero,
-              theme: pw.ThemeData.withFont(
-                base: regularFont,
-                bold: boldFont,
-                italic: regularFont,
-                boldItalic: boldFont,
-              ),
-              buildBackground: (_) =>
-                  _leafyPageBackground(selectedBackgroundIndex),
+            pageTheme: pageTheme,
+            header: (_) => pw.Container(
+              width: PdfPageFormat.a4.width,
+              height: 132,
+              padding: const pw.EdgeInsets.fromLTRB(64, 54, 64, 0),
+              alignment: pw.Alignment.topRight,
+              child: selectedFields.contains('date') && poem.createdAt != null
+                  ? pw.Text(
+                      _formatDate(poem.createdAt!),
+                      style: pw.TextStyle(
+                        fontSize: 10,
+                        color: PdfColors.grey700,
+                      ),
+                    )
+                  : pw.SizedBox(),
             ),
+            footer: footerDetails.isEmpty
+                ? null
+                : (_) => pw.Container(
+                    width: PdfPageFormat.a4.width,
+                    height: 82,
+                    padding: const pw.EdgeInsets.fromLTRB(64, 0, 64, 22),
+                    alignment: pw.Alignment.bottomLeft,
+                    child: pw.Column(
+                      mainAxisSize: pw.MainAxisSize.min,
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: footerDetails,
+                    ),
+                  ),
             build: (_) => [
-              pw.SizedBox(height: 118),
-              pw.Header(level: 0, child: pw.Text('Şiirlerim')),
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 12),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: details,
+              if (selectedFields.contains('title'))
+                pw.Padding(
+                  padding: const pw.EdgeInsets.fromLTRB(72, 24, 72, 0),
+                  child: pw.Center(
+                    child: pw.Text(
+                      poem.title,
+                      textAlign: pw.TextAlign.center,
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              if (selectedFields.contains('content')) ...[
+                pw.SizedBox(height: 28),
+                pw.Container(
+                  width: PdfPageFormat.a4.width,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 76),
+                  alignment: pw.Alignment.topCenter,
+                  child: pw.Text(
+                    poem.body,
+                    textAlign: pw.TextAlign.center,
+                    style: const pw.TextStyle(fontSize: 13, lineSpacing: 5),
+                  ),
+                ),
+              ],
             ],
           ),
         );
