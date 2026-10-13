@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
@@ -1182,6 +1183,12 @@ class _PoemCardState extends State<PoemCard> {
   int likeStatusRevision = 0;
   int? commentCount;
 
+  String _formatCreatedAt(DateTime date) {
+    final localDate = date.toLocal();
+    return '${localDate.day.toString().padLeft(2, '0')}.${localDate.month.toString().padLeft(2, '0')}.${localDate.year} '
+        '${localDate.hour.toString().padLeft(2, '0')}:${localDate.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1294,6 +1301,14 @@ class _PoemCardState extends State<PoemCard> {
                               color: Colors.black54,
                             ),
                           ),
+                          if (widget.poem.createdAt != null)
+                            Text(
+                              _formatCreatedAt(widget.poem.createdAt!),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -1907,6 +1922,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: const Icon(Icons.favorite_outline),
                     label: const Text('Favorilerim'),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: widget.poems.isEmpty
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PoemPdfExportScreen(
+                                poems: widget.poems,
+                                token: widget.token,
+                                repository: widget.repository,
+                              ),
+                            ),
+                          ),
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('PDF oluştur'),
+                  ),
                 ],
               ),
               const SizedBox(height: 30),
@@ -1963,6 +1993,442 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
     ],
   );
+}
+
+class PoemPdfExportScreen extends StatefulWidget {
+  const PoemPdfExportScreen({
+    super.key,
+    required this.poems,
+    required this.token,
+    required this.repository,
+  });
+
+  final List<Poem> poems;
+  final String token;
+  final PoetiumRepository repository;
+
+  @override
+  State<PoemPdfExportScreen> createState() => _PoemPdfExportScreenState();
+}
+
+class _PoemPdfExportScreenState extends State<PoemPdfExportScreen> {
+  final selectedPoemIds = <String>{};
+  final selectedFields = <String>{'title', 'content'};
+  int selectedBackgroundIndex = 0;
+  List<Archive> archives = const [];
+  String query = '';
+  bool exporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedPoemIds.addAll(widget.poems.map((poem) => poem.id));
+    _loadArchives();
+  }
+
+  Future<void> _loadArchives() async {
+    try {
+      final result = await widget.repository.fetchArchives(widget.token);
+      if (mounted) setState(() => archives = result);
+    } catch (_) {}
+  }
+
+  void _toggleField(String field, bool? selected) {
+    setState(() {
+      if (selected == true) {
+        selectedFields.add(field);
+      } else {
+        selectedFields.remove(field);
+      }
+    });
+  }
+
+  String _formatDate(DateTime date) {
+    final localDate = date.toLocal();
+    return '${localDate.day.toString().padLeft(2, '0')}.${localDate.month.toString().padLeft(2, '0')}.${localDate.year} '
+        '${localDate.hour.toString().padLeft(2, '0')}:${localDate.minute.toString().padLeft(2, '0')}';
+  }
+
+  pw.Widget _leaf(double width, double height, PdfColor color) => pw.Container(
+    width: width,
+    height: height,
+    decoration: pw.BoxDecoration(
+      color: color,
+      borderRadius: pw.BorderRadius.circular(height / 2),
+    ),
+  );
+
+  pw.Widget _leafCluster(PdfColor leafColor, PdfColor stemColor) =>
+      pw.Container(
+        width: 90,
+        height: 48,
+        child: pw.Stack(
+          children: [
+            pw.Positioned(
+              left: 5,
+              top: 22,
+              child: pw.Container(width: 72, height: 2, color: stemColor),
+            ),
+            pw.Positioned(left: 10, top: 6, child: _leaf(30, 13, leafColor)),
+            pw.Positioned(left: 39, top: 14, child: _leaf(26, 11, leafColor)),
+            pw.Positioned(left: 18, top: 27, child: _leaf(28, 12, leafColor)),
+          ],
+        ),
+      );
+
+  pw.Widget _leafyPageBackground(int backgroundIndex) {
+    const backgroundColors = [
+      PdfColor(0.99, 0.98, 0.94),
+      PdfColor(0.99, 0.96, 0.95),
+      PdfColor(0.98, 0.97, 0.93),
+      PdfColor(0.96, 0.98, 0.95),
+      PdfColor(0.96, 0.97, 0.99),
+      PdfColor(0.99, 0.97, 0.91),
+      PdfColor(0.99, 0.985, 0.95),
+      PdfColor(0.99, 0.95, 0.94),
+    ];
+    const leafColors = [
+      PdfColor(0.82, 0.88, 0.79),
+      PdfColor(0.87, 0.75, 0.73),
+      PdfColor(0.84, 0.79, 0.68),
+      PdfColor(0.73, 0.83, 0.75),
+      PdfColor(0.73, 0.81, 0.87),
+      PdfColor(0.83, 0.75, 0.58),
+      PdfColor(0.76, 0.84, 0.77),
+      PdfColor(0.85, 0.69, 0.70),
+    ];
+    const stemColors = [
+      PdfColor(0.90, 0.93, 0.87),
+      PdfColor(0.94, 0.87, 0.84),
+      PdfColor(0.92, 0.89, 0.81),
+      PdfColor(0.87, 0.93, 0.88),
+      PdfColor(0.87, 0.91, 0.95),
+      PdfColor(0.93, 0.89, 0.79),
+      PdfColor(0.89, 0.93, 0.88),
+      PdfColor(0.94, 0.85, 0.85),
+    ];
+    const frameColors = [
+      PdfColor(0.94, 0.94, 0.90),
+      PdfColor(0.95, 0.90, 0.89),
+      PdfColor(0.93, 0.91, 0.85),
+      PdfColor(0.90, 0.94, 0.90),
+      PdfColor(0.89, 0.93, 0.96),
+      PdfColor(0.95, 0.92, 0.84),
+      PdfColor(0.86, 0.82, 0.70),
+      PdfColor(0.94, 0.87, 0.87),
+    ];
+    final index = backgroundIndex.clamp(0, backgroundColors.length - 1);
+    final leafColor = leafColors[index];
+    final stemColor = stemColors[index];
+    final frameColor = frameColors[index];
+    return pw.Stack(
+      fit: pw.StackFit.expand,
+      children: [
+        pw.Container(color: backgroundColors[index]),
+        if (index == 6)
+          pw.Positioned(
+            left: 34,
+            top: 38,
+            child: pw.Container(
+              width: 527,
+              height: 766,
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: frameColor, width: 1.2),
+              ),
+            ),
+          ),
+        pw.Positioned(
+          top: 12,
+          left: 8,
+          child: _leafCluster(leafColor, stemColor),
+        ),
+        pw.Positioned(
+          top: 12,
+          right: 8,
+          child: _leafCluster(leafColor, stemColor),
+        ),
+        pw.Positioned(
+          bottom: 12,
+          left: 8,
+          child: _leafCluster(leafColor, stemColor),
+        ),
+        pw.Positioned(
+          bottom: 12,
+          right: 8,
+          child: _leafCluster(leafColor, stemColor),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _exportPdf() async {
+    final selectedPoems = widget.poems
+        .where((poem) => selectedPoemIds.contains(poem.id))
+        .toList();
+    if (selectedPoems.isEmpty || selectedFields.isEmpty || exporting) return;
+
+    setState(() => exporting = true);
+    try {
+      final regularFont = pw.Font.ttf(
+        await rootBundle.load('assets/fonts/roboto-regular.ttf'),
+      );
+      final boldFont = pw.Font.ttf(
+        await rootBundle.load('assets/fonts/roboto-bold.ttf'),
+      );
+      final archiveByPoemId = {
+        for (final archive in archives) archive.poemId: archive,
+      };
+      final document = pw.Document();
+      for (final poem in selectedPoems) {
+        final archive = archiveByPoemId[poem.id];
+        final details = <pw.Widget>[];
+        if (selectedFields.contains('date') && poem.createdAt != null) {
+          details.add(pw.Text('Yayınlanma tarihi ve saati: ${_formatDate(poem.createdAt!)}'));
+        }
+        if (selectedFields.contains('title')) {
+          details.add(pw.Text('Başlık: ${poem.title}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)));
+        }
+        if (selectedFields.contains('category') && archive?.category.isNotEmpty == true) {
+          details.add(pw.Text('Kategori: ${archive!.category}'));
+        }
+        if (selectedFields.contains('notes') && archive?.notes.isNotEmpty == true) {
+          details.add(pw.Text('Notlar: ${archive!.notes}'));
+        }
+        if (selectedFields.contains('tags') && archive?.tags.isNotEmpty == true) {
+          details.add(pw.Text('Etiketler: ${archive!.tags}'));
+        }
+        if (selectedFields.contains('content')) {
+          details.add(pw.SizedBox(height: 8));
+          details.add(pw.Text(poem.body));
+        }
+        details.add(pw.Divider());
+        document.addPage(
+          pw.MultiPage(
+            maxPages: 500,
+            pageTheme: pw.PageTheme(
+              pageFormat: PdfPageFormat.a4,
+              margin: pw.EdgeInsets.zero,
+              theme: pw.ThemeData.withFont(
+                base: regularFont,
+                bold: boldFont,
+                italic: regularFont,
+                boldItalic: boldFont,
+              ),
+              buildBackground: (_) =>
+                  _leafyPageBackground(selectedBackgroundIndex),
+            ),
+            build: (_) => [
+              pw.SizedBox(height: 118),
+              pw.Header(level: 0, child: pw.Text('Şiirlerim')),
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 12),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: details,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      await Printing.sharePdf(
+        bytes: await document.save(),
+        filename: 'siirlerim.pdf',
+      );
+    } catch (error, stackTrace) {
+      debugPrint('PDF export failed: $error\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF oluşturulamadı: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => exporting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredPoems = widget.poems.where((poem) {
+      final text = query.trim().toLowerCase();
+      return text.isEmpty ||
+          poem.title.toLowerCase().contains(text) ||
+          poem.body.toLowerCase().contains(text);
+    }).toList();
+
+    return Scaffold(
+      backgroundColor: paper,
+      appBar: AppBar(
+        title: const Text('PDF oluştur'),
+        backgroundColor: paper,
+        foregroundColor: ink,
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 18),
+              children: [
+                const Text(
+                  'PDF içeriği',
+                  style: TextStyle(color: ink, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Başlık'),
+                  value: true,
+                  onChanged: null,
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('İçerik'),
+                  value: true,
+                  onChanged: null,
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Yayınlanma tarihi ve saati'),
+                  value: selectedFields.contains('date'),
+                  onChanged: (value) => _toggleField('date', value),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Kategori'),
+                  value: selectedFields.contains('category'),
+                  onChanged: (value) => _toggleField('category', value),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Notlar'),
+                  value: selectedFields.contains('notes'),
+                  onChanged: (value) => _toggleField('notes', value),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Etiketler'),
+                  value: selectedFields.contains('tags'),
+                  onChanged: (value) => _toggleField('tags', value),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Sayfa arka planı',
+                  style: TextStyle(color: ink, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 42,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      ('Çiçekli krem', const Color(0xFFFCFAF0)),
+                      ('Gül kurusu', const Color(0xFFFCF3F1)),
+                      ('Parşömen', const Color(0xFFFAF8ED)),
+                      ('Adaçayı', const Color(0xFFF5FAF3)),
+                      ('Ay ışığı', const Color(0xFFF5F7FC)),
+                      ('Kuru çiçek', const Color(0xFFFCF8E9)),
+                      ('Botanik çerçeve', const Color(0xFFFCFAF1)),
+                      ('Gül bahçesi', const Color(0xFFFCF1F0)),
+                    ].asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final option = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          avatar: CircleAvatar(
+                            radius: 9,
+                            backgroundColor: option.$2,
+                          ),
+                          label: Text(option.$1),
+                          selected: selectedBackgroundIndex == index,
+                          onSelected: (_) =>
+                              setState(() => selectedBackgroundIndex = index),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Divider(height: 28),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Şiirler',
+                        style: TextStyle(color: ink, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        selectedPoemIds
+                          ..clear()
+                          ..addAll(widget.poems.map((poem) => poem.id));
+                      }),
+                      child: const Text('Tümünü seç'),
+                    ),
+                    TextButton(
+                      onPressed: () => setState(selectedPoemIds.clear),
+                      child: const Text('Temizle'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  onChanged: (value) => setState(() => query = value),
+                  decoration: const InputDecoration(
+                    hintText: 'Şiirlerde ara...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...filteredPoems.map(
+                  (poem) => CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: selectedPoemIds.contains(poem.id),
+                    title: Text(poem.title),
+                    subtitle: Text(
+                      poem.createdAt == null
+                          ? poem.author
+                          : '${poem.author} · ${_formatDate(poem.createdAt!)}',
+                    ),
+                    onChanged: (selected) => setState(() {
+                      if (selected == true) {
+                        selectedPoemIds.add(poem.id);
+                      } else {
+                        selectedPoemIds.remove(poem.id);
+                      }
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: exporting || selectedPoemIds.isEmpty || selectedFields.isEmpty
+                      ? null
+                      : _exportPdf,
+                  icon: exporting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.file_download_outlined),
+                  label: Text(exporting ? 'PDF hazırlanıyor...' : 'PDF indir'),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ArchiveEditorSheet extends StatefulWidget {

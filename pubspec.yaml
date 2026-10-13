@@ -68,6 +68,8 @@ flutter:
 
   assets:
     - assets/branding/poetium_icon.png
+    - assets/fonts/roboto-regular.ttf
+    - assets/fonts/roboto-bold.ttf
 
 flutter_launcher_icons:
   android: true

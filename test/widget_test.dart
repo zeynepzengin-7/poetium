@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poetium/api.dart';
 import 'package:poetium/main.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 class FakePoetiumRepository implements PoetiumRepository {
   final user = const UserAccount(
@@ -638,6 +641,69 @@ void main() {
       expect(repository.resetRequested, isTrue);
     },
   );
+
+  test('creates a Turkish PDF with embedded fonts and page background', () async {
+    final regularFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/roboto-regular.ttf'),
+    );
+    final boldFont = pw.Font.ttf(
+      await rootBundle.load('assets/fonts/roboto-bold.ttf'),
+    );
+    final document = pw.Document();
+    document.addPage(
+      pw.MultiPage(
+        pageTheme: pw.PageTheme(
+          pageFormat: PdfPageFormat.a4,
+          margin: pw.EdgeInsets.zero,
+          theme: pw.ThemeData.withFont(base: regularFont, bold: boldFont),
+          buildBackground: (_) => pw.Stack(
+            fit: pw.StackFit.expand,
+            children: [
+              pw.Container(color: const PdfColor(0.99, 0.99, 0.97)),
+              pw.Positioned(
+                top: 12,
+                left: 8,
+                child: pw.Container(
+                  width: 90,
+                  height: 48,
+                  child: pw.Stack(
+                    children: [
+                      pw.Positioned(
+                        left: 5,
+                        top: 22,
+                        child: pw.Container(width: 72, height: 2),
+                      ),
+                      pw.Positioned(
+                        left: 10,
+                        top: 6,
+                        child: pw.Container(
+                          width: 30,
+                          height: 13,
+                          decoration: pw.BoxDecoration(
+                            color: const PdfColor(0.91, 0.95, 0.90),
+                            borderRadius: pw.BorderRadius.circular(7),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        build: (_) => [
+          pw.SizedBox(height: 118),
+          pw.Text('Şiirlerim'),
+          pw.Text('İçeriği: Çığlık, özgürlük, güzel şiir.'),
+        ],
+      ),
+    );
+
+    final bytes = await document.save();
+
+    expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+  });
 }
 
 class _FailingRepository implements PoetiumRepository {
