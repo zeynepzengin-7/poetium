@@ -45,6 +45,7 @@ class Poem {
     required this.visibility,
     required this.scores,
     required this.ratings,
+    this.createdAt,
     double? totalScore,
   }) : totalScore =
            totalScore ??
@@ -59,6 +60,7 @@ class Poem {
   final String visibility;
   final Map<String, double> scores;
   final int ratings;
+  final DateTime? createdAt;
   final double totalScore;
   double get average => totalScore;
 
@@ -73,6 +75,9 @@ class Poem {
         ? 'Herkese açık'
         : 'Seçili kişiler',
     ratings: (json['ratings'] as num).toInt(),
+    createdAt: json['created_at'] is String
+      ? DateTime.parse(json['created_at'] as String)
+      : null,
     scores: {
       'İmge': (json['image'] as num).toDouble(),
       'Ritim': (json['rhythm'] as num).toDouble(),
@@ -343,7 +348,7 @@ class HttpPoetiumRepository implements PoetiumRepository {
         'POST' => await client.post(
           uri,
           headers: headers,
-          body: jsonEncode(body),
+          body: jsonEncode(body ?? <String, dynamic>{}),
         ),
         'PUT' => await client.put(
           uri,

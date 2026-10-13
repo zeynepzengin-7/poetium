@@ -353,7 +353,7 @@ function poemAccessClause(currentUserId) {
 
 app.get('/poems', authenticate, async (req, res, next) => {
   try {
-    const result = await query(poemSelect(poemAccessClause(req.userId)), [req.userId]);
+    const result = await query(poemSelect(poemAccessClause(req.userId)));
     res.json({ poems: result.rows });
   } catch (error) { next(error); }
 });

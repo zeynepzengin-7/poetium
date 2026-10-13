@@ -569,6 +569,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int tab = 0;
   List<Poem> poems = [];
+  List<Poem> followedPoems = [];
   List<UserProfile> users = [];
   bool loading = true;
 
@@ -590,6 +591,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           poems = combined.values.toList();
+          followedPoems = followFeed;
           users = userResult;
           loading = false;
         });
@@ -660,12 +662,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Discover(
               poems: poems,
+              followedPoems: followedPoems,
               users: users,
               currentUserId: widget.account.id,
               token: widget.token,
               repository: widget.repository,
               onRate: rate,
               onShowRatingDetails: showRatingDetails,
+              onRefresh: loadPoems,
             ),
       Compose(
         users: users,
@@ -690,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (!mounted) return poem;
               setState(() {
                 poems.insert(0, poem);
-                tab = 2;
+                tab = 0;
               });
               return poem;
             },
@@ -796,20 +800,24 @@ class Discover extends StatefulWidget {
   const Discover({
     super.key,
     required this.poems,
+    required this.followedPoems,
     required this.users,
     required this.currentUserId,
     required this.token,
     required this.repository,
     required this.onRate,
     required this.onShowRatingDetails,
+    required this.onRefresh,
   });
   final List<Poem> poems;
+  final List<Poem> followedPoems;
   final List<UserProfile> users;
   final String currentUserId;
   final String token;
   final PoetiumRepository repository;
   final ValueChanged<Poem> onRate;
   final ValueChanged<Poem> onShowRatingDetails;
+  final Future<void> Function() onRefresh;
 
   @override
   State<Discover> createState() => _DiscoverState();
@@ -817,6 +825,7 @@ class Discover extends StatefulWidget {
 
 class _DiscoverState extends State<Discover> {
   final search = TextEditingController();
+  String selectedFeed = 'Senin için';
 
   @override
   void dispose() {
@@ -827,9 +836,16 @@ class _DiscoverState extends State<Discover> {
   @override
   Widget build(BuildContext context) {
     final query = search.text.trim().toLowerCase();
+    final poemsForFeed = switch (selectedFeed) {
+      'Takipte' => widget.followedPoems,
+      'Yeni' => [...widget.poems]
+        ..sort((first, second) =>
+            (second.createdAt ?? DateTime(0)).compareTo(first.createdAt ?? DateTime(0))),
+      _ => widget.poems,
+    };
     final filteredPoems = query.isEmpty
-        ? widget.poems
-        : widget.poems.where((poem) {
+        ? poemsForFeed
+        : poemsForFeed.where((poem) {
             return poem.title.toLowerCase().contains(query) ||
                 poem.body.toLowerCase().contains(query) ||
                 poem.author.toLowerCase().contains(query);
@@ -928,33 +944,65 @@ class _DiscoverState extends State<Discover> {
           ),
         ],
         const SizedBox(height: 16),
-        const Wrap(
+        Wrap(
           spacing: 8,
           children: [
-            Chip(
-              label: Text('Senin için'),
-              backgroundColor: ink,
-              labelStyle: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
+            ChoiceChip(
+              label: const Text('Senin için'),
+              selected: selectedFeed == 'Senin için',
+              onSelected: (_) => setState(() => selectedFeed = 'Senin için'),
             ),
-            Chip(label: Text('Yeni'), backgroundColor: Colors.white),
-            Chip(label: Text('Takipte'), backgroundColor: Colors.white),
+            ChoiceChip(
+              label: const Text('Yeni'),
+              selected: selectedFeed == 'Yeni',
+              onSelected: (_) => setState(() => selectedFeed = 'Yeni'),
+            ),
+            ChoiceChip(
+              label: const Text('Takipte'),
+              selected: selectedFeed == 'Takipte',
+              onSelected: (_) => setState(() => selectedFeed = 'Takipte'),
+            ),
           ],
         ),
         const SizedBox(height: 10),
         Expanded(
-          child: ListView.separated(
-            itemCount: filteredPoems.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemBuilder: (_, index) => PoemCard(
-              poem: filteredPoems[index],
-              token: widget.token,
-              repository: widget.repository,
-              onRate: () => widget.onRate(filteredPoems[index]),
-              onShowRatingDetails: () =>
-                  widget.onShowRatingDetails(filteredPoems[index]),
+          child: RefreshIndicator(
+            onRefresh: widget.onRefresh,
+            child: ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: filteredPoems.isEmpty ? 1 : filteredPoems.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (_, index) => filteredPoems.isEmpty
+                  ? SizedBox(
+                      height: 260,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              query.isEmpty
+                                  ? 'Henüz gösterilecek şiir yok.'
+                                  : 'Bu aramayla eşleşen şiir bulunamadı.',
+                              style: const TextStyle(color: Colors.black54),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: widget.onRefresh,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Yenile'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : PoemCard(
+                      poem: filteredPoems[index],
+                      token: widget.token,
+                      repository: widget.repository,
+                      onRate: () => widget.onRate(filteredPoems[index]),
+                      onShowRatingDetails: () =>
+                          widget.onShowRatingDetails(filteredPoems[index]),
+                    ),
             ),
           ),
         ),
@@ -986,6 +1034,8 @@ class PoemCard extends StatefulWidget {
 class _PoemCardState extends State<PoemCard> {
   int? likeCount;
   bool isLiked = false;
+  bool likeRequestInFlight = false;
+  int likeStatusRevision = 0;
   int? commentCount;
 
   @override
@@ -995,29 +1045,64 @@ class _PoemCardState extends State<PoemCard> {
   }
 
   Future<void> _loadStats() async {
+    final revision = likeStatusRevision;
     try {
       final likeStatus =
           await widget.repository.fetchLikeStatus(widget.token, widget.poem.id);
       final comments =
           await widget.repository.fetchComments(widget.token, widget.poem.id);
+      if (!mounted) return;
       setState(() {
-        likeCount = likeStatus['like_count'] as int;
-        isLiked = likeStatus['is_liked'] as bool;
+        if (revision == likeStatusRevision) {
+          likeCount = likeStatus['like_count'] as int;
+          isLiked = likeStatus['is_liked'] as bool;
+        }
         commentCount = comments.length;
       });
-    } catch (_) {}
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Beğeni durumu alınamadı.')),
+        );
+      }
+    }
   }
 
   Future<void> _toggleLike() async {
+    if (likeRequestInFlight) return;
+    final wasLiked = isLiked;
+    likeStatusRevision += 1;
+    setState(() => likeRequestInFlight = true);
     try {
-      final newCount = isLiked
+      final newCount = wasLiked
           ? await widget.repository.unlikePoem(widget.token, widget.poem.id)
           : await widget.repository.likePoem(widget.token, widget.poem.id);
+      if (!mounted) return;
       setState(() {
         likeCount = newCount;
-        isLiked = !isLiked;
+        isLiked = !wasLiked;
       });
-    } catch (_) {}
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Favori işlemi tamamlanamadı.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => likeRequestInFlight = false);
+    }
   }
 
   @override
@@ -1107,7 +1192,7 @@ class _PoemCardState extends State<PoemCard> {
                     ),
                   ),
                   TextButton.icon(
-                    onPressed: _toggleLike,
+                    onPressed: likeRequestInFlight ? null : _toggleLike,
                     icon: Icon(
                       isLiked ? Icons.favorite : Icons.favorite_outline,
                       size: 18,
