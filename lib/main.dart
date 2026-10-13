@@ -2591,6 +2591,65 @@ class _UserProfileDetailScreenState extends State<UserProfileDetailScreen> {
     }
   }
 
+  void _showFollowList(List<UserProfile> users, String title) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.6,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: ink,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: users.isEmpty
+                    ? const Center(child: Text('Henüz kimse yok.'))
+                    : ListView.builder(
+                        itemCount: users.length,
+                        itemBuilder: (_, index) {
+                          final user = users[index];
+                          return ListTile(
+                            leading: PoetiumAvatar(
+                              username: user.username,
+                              avatarUrl: user.avatarUrl,
+                            ),
+                            title: Text('@${user.username}'),
+                            subtitle: Text(user.name),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop();
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => UserProfileDetailScreen(
+                                    user: user,
+                                    token: widget.token,
+                                    repository: widget.repository,
+                                    currentUserId: widget.currentUserId,
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleFollow() async {
     if (widget.user.id == widget.currentUserId) return;
     try {
@@ -2651,6 +2710,16 @@ class _UserProfileDetailScreenState extends State<UserProfileDetailScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (following.any(
+                            (user) => user.id == widget.currentUserId,
+                          ))
+                            const Text(
+                              'Seni takip ediyor',
+                              style: TextStyle(
+                                color: Colors.black54,
+                                fontSize: 12,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -2670,8 +2739,16 @@ class _UserProfileDetailScreenState extends State<UserProfileDetailScreen> {
                 Row(
                   children: [
                     _ProfileStat(value: '${poems.length}', label: 'Yayın'),
-                    _ProfileStat(value: '${followers.length}', label: 'Takipçi'),
-                    _ProfileStat(value: '${following.length}', label: 'Takip'),
+                      _ProfileStat(
+                        value: '${followers.length}',
+                        label: 'Takipçi',
+                        onTap: () => _showFollowList(followers, 'Takipçiler'),
+                      ),
+                      _ProfileStat(
+                        value: '${following.length}',
+                        label: 'Takip',
+                        onTap: () => _showFollowList(following, 'Takip edilenler'),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 30),
