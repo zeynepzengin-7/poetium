@@ -97,7 +97,6 @@ class PoetiumBrand extends StatelessWidget {
 }
 
 enum AuthMode { login, register, verifyEmail, forgotPassword }
-
 const bool emailVerificationRequired = bool.fromEnvironment(
   'EMAIL_VERIFICATION_REQUIRED',
   defaultValue: false,
@@ -144,6 +143,9 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() => mode = value);
   }
 
+  String? requiredField(String? value, String message) =>
+      value == null || value.trim().isEmpty ? message : null;
+
   Future<void> submit() async {
     if (!formKey.currentState!.validate()) return;
     setState(() => submitting = true);
@@ -152,11 +154,7 @@ class _AuthScreenState extends State<AuthScreen> {
         await widget.repository.forgotPassword(email.text.trim());
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Şifre yenileme talebi alındı. E-posta kutunu kontrol et.',
-            ),
-          ),
+          const SnackBar(content: Text('Şifre yenileme talebi alındı. E-posta kutunu kontrol et.')),
         );
         switchMode(AuthMode.login);
         return;
@@ -196,19 +194,15 @@ class _AuthScreenState extends State<AuthScreen> {
         email: email.text.trim(),
         password: password.text,
       );
-      if (mounted) {
-        widget.onAuthenticated(session);
-      }
+      if (mounted) widget.onAuthenticated(session);
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message)),
+        );
       }
     } finally {
-      if (mounted) {
-        setState(() => submitting = false);
-      }
+      if (mounted) setState(() => submitting = false);
     }
   }
 
@@ -218,14 +212,9 @@ class _AuthScreenState extends State<AuthScreen> {
     if (!mounted) return;
     setState(() => googleLoading = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Google OAuth istemci kimliği yapılandırılmalı.'),
-      ),
+      const SnackBar(content: Text('Google OAuth istemci kimliği yapılandırılmalı.')),
     );
   }
-
-  String? requiredField(String? value, String message) =>
-      value == null || value.trim().isEmpty ? message : null;
 
   @override
   Widget build(BuildContext context) {
